@@ -52,11 +52,11 @@ class AudioPlayer():
     # Obtener Streaming y Crear, a partir de VLC, la reproducción.
     def play(self, source):
         playurl = source.getbest().url
-        Instance = vlc.Instance()
-        player = Instance.media_player_new()
-        Media = Instance.media_new(playurl, ":no-video", ":nooverlay", ":role=music", ":network-caching=5000", ":disk-caching=5000",":file-caching=5000", ":live-caching=100")
-        Media.get_mrl()
-        player.set_media(Media)
+        instance = vlc.Instance()
+        player = instance.media_player_new()
+        media = instance.media_new(playurl, ":no-video", ":nooverlay", ":role=music", ":network-caching=5000", ":disk-caching=5000",":file-caching=5000", ":live-caching=100")
+        media.get_mrl()
+        player.set_media(media)
         self.player = player
         self.t = threading.Thread(name='player', target=self.__playloop)
         self.t.daemon = True
@@ -79,7 +79,7 @@ def pafy_playlist(playlist_id):
     return playlist
 
 # Buscar y reproducir en YT
-def youtube_search(query, max_res=3):
+def youtube_search_play(query, max_res=3):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
 
     # Realizar consulta
@@ -116,7 +116,7 @@ def youtube_search(query, max_res=3):
         player.wait()
   
 def main():
-    youtube_search("alright keaton henson")
+    youtube_search_play("alright keaton henson")
     pass
 
 
