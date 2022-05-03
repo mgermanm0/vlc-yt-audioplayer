@@ -1,3 +1,4 @@
+from email.mime import audio
 import pafy
 import vlc
 import time
@@ -16,20 +17,52 @@ class AudioPlayer():
         self.mutex = threading.Lock()
         self.t = None
         self.player = None
+        self.skip = False
+        self.queuemutex = threading.Lock()
+        self.queue = []
         pass
     
+    def __get_next_song(self):
+        try:
+            self.queuemutex.acquire()
+            if len(self.queue) > 0:
+                return self.queue.pop(0)
+            return None
+        finally:
+            self.queuemutex.release()
+    def addSource(self, source):
+        try:
+            self.queuemutex.acquire()
+            self.queue.append(source)
+            print("Added - ", source.title)
+        finally:
+            self.queuemutex.release()
     # Funcion encargada de la reproduccion del audio y de revisar si se ha acabado
     def __playloop(self):
-        self.player.play()
-        current_state = 1
-        while current_state != 6:
+        song = self.__get_next_song()
+        print(song.title)
+        while song != None:
             self.mutex.acquire()
-            current_state = self.player.get_state()
+            self.__new_player_media(self.player, song)
+            self.player.play()
             self.mutex.release()
-            time.sleep(5)
+            current_state = 1
+            while current_state != 6:
+                self.mutex.acquire()
+                if self.skip:
+                    current_state = 6
+                    self.skip = False
+                    self.player.stop()
+                else:
+                    current_state = self.player.get_state()
+                self.mutex.release()
+                time.sleep(5)
+            song = self.__get_next_song()
+            if song != None:
+                print(song.title)
         self.player.stop()
+
         print("Se acabó")
-        # TODO: si hay mas canciones en una cola, seguir reproduciendo
     
     # Pausar la cancion actual
     def pause(self):
@@ -37,10 +70,17 @@ class AudioPlayer():
         self.player.pause()
         self.mutex.release()
     
+    def next(self):
+        self.mutex.acquire()
+        self.skip = True
+        self.mutex.release()
     # Parar el reproductor
     def stop(self):
+        self.queuemutex.acquire()
         self.mutex.acquire()
+        self.queue.clear()
         self.player.stop()
+        self.queuemutex.release()
         self.mutex.release()
     
     # Seguir reproduciendo cancion
@@ -49,19 +89,26 @@ class AudioPlayer():
         self.player.play()
         self.mutex.release()
     
-    # Obtener Streaming y Crear, a partir de VLC, la reproducción.
-    def play(self, source):
+    
+    def __new_player_media(self, player, source):
         playurl = source.getbest().url
         instance = vlc.Instance()
-        player = instance.media_player_new()
         media = instance.media_new(playurl, ":no-video", ":nooverlay", ":role=music", ":network-caching=5000", ":disk-caching=5000",":file-caching=5000", ":live-caching=100")
         media.get_mrl()
         player.set_media(media)
-        self.player = player
-        self.t = threading.Thread(name='player', target=self.__playloop)
-        self.t.daemon = True
-        self.t.start()
-    
+        
+    # Obtener Streaming y Crear, a partir de VLC, la reproducción.
+    def play(self, source):
+        if self.player is None:
+            instance = vlc.Instance()
+            player = instance.media_player_new()
+            self.addSource(source)
+            self.player = player
+            self.t = threading.Thread(name='player', target=self.__playloop)
+            self.t.daemon = True
+            self.t.start()
+        else:
+            self.addSource(source)
     # Para debuggear, esperar a que el loop de reproduccion acabe
     def wait(self):
         self.t.join()
@@ -78,8 +125,8 @@ def pafy_playlist(playlist_id):
     playlist = pafy.get_playlist(url)
     return playlist
 
-# Buscar y reproducir en YT
-def youtube_search_play(query, max_res=3):
+
+def ytsearch(query, max_res=3):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
 
     # Realizar consulta
@@ -94,29 +141,40 @@ def youtube_search_play(query, max_res=3):
         elif search_result['id']['kind'] == 'youtube#playlist':
             playlists.append('%s' % (search_result['id']['playlistId']))
 
-    # Obtener primer resultado
-    selected = None
     if videos:
         print('Videos:{0}'.format(videos))
-        selected = pafy_video(videos[0])
     elif playlists:
         print('Playlists:{0}'.format(playlists))
-        pafy_video(playlists[0])
     
+    return [pafy_video(x) for x in videos]
+
+# Buscar y reproducir en YT
+def youtube_search_play(query, max_res=3, audioplayer=None):
+    res = ytsearch(query, max_res)
     # Si hay video, reproducirlo. Simular una pausa y esperar hasta el final.
-    if selected is not None:
-        player = AudioPlayer()
-        player.play(selected)
-        time.sleep(30)
-        print("pause")
-        player.pause()
-        time.sleep(5)
-        print("resume")
-        player.resume()
-        player.wait()
+    if audioplayer is None:
+        audioplayer = AudioPlayer()
+    audioplayer.play(res[0])
+    return audioplayer
   
 def main():
-    youtube_search_play("alright keaton henson")
+    audioplayer=youtube_search_play("Infected Mushroom - Kababies")
+    time.sleep(7)
+    youtube_search_play("never gonna give you up", audioplayer=audioplayer)
+    time.sleep(7)
+    youtube_search_play("alright keaton henson", audioplayer=audioplayer)
+    time.sleep(30)
+    print("pause")
+    audioplayer.pause()
+    time.sleep(5)
+    print("resume")
+    audioplayer.resume()
+    time.sleep(5)
+    print("skip")
+    audioplayer.next()
+    time.sleep(20)
+    audioplayer.next()
+    audioplayer.wait()
     pass
 
 
